@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# build / tooling caches
+build/
+*.egg-info/
+.ruff_cache/
+
+# scratch outputs
+*.timing.txt
