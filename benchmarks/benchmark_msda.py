@@ -26,18 +26,17 @@ Exit code is 0 iff every correctness gate that ran passed.
 import os
 import sys
 
-_HERE = os.path.dirname(os.path.abspath(__file__))   # .../models/ops/triton_port
-_OPS = os.path.dirname(_HERE)                         # .../models/ops (built .so lives here)
-sys.path.insert(0, _OPS)
-sys.path.insert(0, _HERE)
-
 import torch
 from triton.testing import do_bench
 
-import MultiScaleDeformableAttention as MSDA
-from functions.ms_deform_attn_func import MSDeformAttnFunction
-from reference import ms_deform_attn_core_pytorch, make_inputs
-from ms_deform_attn_triton import ms_deform_attn_triton
+# compiled CUDA op (.so, built via models/ops/make.sh) for raw-forward timing
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "ops"))
+import MultiScaleDeformableAttention as MSDA  # noqa: E402
+
+from deformable_attn import (  # noqa: E402
+    ms_deform_attn, ms_deform_attn_triton, ms_deform_attn_core_pytorch)
+from deformable_attn.reference import make_inputs  # noqa: E402
 
 
 # ----------------------------------------------------------------------------
@@ -117,29 +116,29 @@ def _rel_l2(a, b):
 def _ref_fwd_bwd(value, spatial, loc, attn):
     """Oracle forward + grads, all in fp32."""
     v = value.float().detach().requires_grad_(True)
-    l = loc.float().detach().requires_grad_(True)
+    lc = loc.float().detach().requires_grad_(True)
     a = attn.float().detach().requires_grad_(True)
-    out = ms_deform_attn_core_pytorch(v, spatial, l, a)
+    out = ms_deform_attn_core_pytorch(v, spatial, lc, a)
     out.backward(torch.ones_like(out))  # contiguous grad (sum() gives expanded grad)
-    return out.detach(), v.grad.detach(), l.grad.detach(), a.grad.detach()
+    return out.detach(), v.grad.detach(), lc.grad.detach(), a.grad.detach()
 
 
 def _impl_fwd_bwd(name, value, spatial, loc, attn):
     """Forward + grads for a named impl, in the impl's native dtype."""
     v = value.detach().requires_grad_(True)
-    l = loc.detach().requires_grad_(True)
+    lc = loc.detach().requires_grad_(True)
     a = attn.detach().requires_grad_(True)
     if name == "triton":
-        out = ms_deform_attn_triton(v, spatial, l, a)
+        out = ms_deform_attn_triton(v, spatial, lc, a)
     elif name == "grid_sample":
-        out = ms_deform_attn_core_pytorch(v, spatial, l, a)
+        out = ms_deform_attn_core_pytorch(v, spatial, lc, a)
     elif name == "cuda":
         lsi = level_start_index(spatial)
-        out = MSDeformAttnFunction.apply(v, spatial, lsi, l, a, im2col_step(v.shape[0]))
+        out = ms_deform_attn(v, spatial, lsi, lc, a, im2col_step(v.shape[0]), backend="cuda")
     else:
         raise ValueError(name)
     out.backward(torch.ones_like(out))  # contiguous grad (CUDA op asserts contiguity)
-    return out.detach(), v.grad.detach(), l.grad.detach(), a.grad.detach()
+    return out.detach(), v.grad.detach(), lc.grad.detach(), a.grad.detach()
 
 
 def correctness_gate(name, dtype, value, spatial, loc, attn, ref):
@@ -178,11 +177,11 @@ def time_forward(name, value, spatial, loc, attn):
     if name == "cuda":
         lsi = level_start_index(spatial)
         step = im2col_step(value.shape[0])
-        fn = lambda: MSDA.ms_deform_attn_forward(value, spatial, lsi, loc, attn, step)
+        fn = lambda: MSDA.ms_deform_attn_forward(value, spatial, lsi, loc, attn, step)  # noqa: E731
     elif name == "triton":
-        fn = lambda: ms_deform_attn_triton(value, spatial, loc, attn)
+        fn = lambda: ms_deform_attn_triton(value, spatial, loc, attn)  # noqa: E731
     elif name == "grid_sample":
-        fn = lambda: ms_deform_attn_core_pytorch(value, spatial, loc, attn)
+        fn = lambda: ms_deform_attn_core_pytorch(value, spatial, loc, attn)  # noqa: E731
     else:
         raise ValueError(name)
 
@@ -197,23 +196,23 @@ def time_forward(name, value, spatial, loc, attn):
 def time_backward(name, value, spatial, loc, attn):
     """Median [p20,p80] ms for the backward pass, routed through autograd."""
     v = value.detach().requires_grad_(True)
-    l = loc.detach().requires_grad_(True)
+    lc = loc.detach().requires_grad_(True)
     a = attn.detach().requires_grad_(True)
-    leaves = [v, l, a]
+    leaves = [v, lc, a]
 
     if name == "cuda":
         lsi = level_start_index(spatial)
         step = im2col_step(v.shape[0])
-        out = MSDeformAttnFunction.apply(v, spatial, lsi, l, a, step)
+        out = ms_deform_attn(v, spatial, lsi, lc, a, step, backend="cuda")
     elif name == "triton":
-        out = ms_deform_attn_triton(v, spatial, l, a)
+        out = ms_deform_attn_triton(v, spatial, lc, a)
     elif name == "grid_sample":
-        out = ms_deform_attn_core_pytorch(v, spatial, l, a)
+        out = ms_deform_attn_core_pytorch(v, spatial, lc, a)
     else:
         raise ValueError(name)
     grad_seed = torch.ones_like(out)  # contiguous upstream grad
 
-    bwd = lambda: out.backward(grad_seed, retain_graph=True)
+    bwd = lambda: out.backward(grad_seed, retain_graph=True)  # noqa: E731
     for _ in range(3):  # warm
         bwd()
         for leaf in leaves:
@@ -229,21 +228,21 @@ def peak_memory(name, value, spatial, loc, attn):
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
     v = value.detach().requires_grad_(True)
-    l = loc.detach().requires_grad_(True)
+    lc = loc.detach().requires_grad_(True)
     a = attn.detach().requires_grad_(True)
     if name == "cuda":
         lsi = level_start_index(spatial)
-        out = MSDeformAttnFunction.apply(v, spatial, lsi, l, a, im2col_step(v.shape[0]))
+        out = ms_deform_attn(v, spatial, lsi, lc, a, im2col_step(v.shape[0]), backend="cuda")
     elif name == "triton":
-        out = ms_deform_attn_triton(v, spatial, l, a)
+        out = ms_deform_attn_triton(v, spatial, lc, a)
     elif name == "grid_sample":
-        out = ms_deform_attn_core_pytorch(v, spatial, l, a)
+        out = ms_deform_attn_core_pytorch(v, spatial, lc, a)
     else:
         raise ValueError(name)
     out.backward(torch.ones_like(out))
     torch.cuda.synchronize()
     peak = torch.cuda.max_memory_allocated() / (1024 ** 2)
-    del v, l, a, out
+    del v, lc, a, out
     return peak
 
 

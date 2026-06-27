@@ -15,6 +15,38 @@ This repository is an official implementation of the paper [Deformable DETR: Def
 
 **Abstract.** DETR has been recently proposed to eliminate the need for many hand-designed components in object detection while demonstrating good performance. However, it suffers from slow convergence and limited feature spatial resolution, due to the limitation of Transformer attention modules in processing image feature maps. To mitigate these issues, we proposed Deformable DETR, whose attention modules only attend to a small set of key sampling points around a reference. Deformable DETR can achieve better performance than DETR (especially on small objects) with 10× less training epochs. Extensive experiments on the COCO benchmark demonstrate the effectiveness of our approach.
 
+## Triton MSDeformAttn op (`deformable_attn`) — Landeed fork
+
+This fork adds a **Triton port** of the Multi-Scale Deformable Attention op and ships it as an installable, pure-Python package (`deformable_attn`) managed with [uv](https://docs.astral.sh/uv/). `MSDeformAttn` runs Triton **by default — no CUDA build required** — with the original compiled kernel and a `grid_sample` reference as alternate backends. Correctness is `gradcheck`-verified against the `grid_sample` oracle.
+
+### Develop (uv)
+```bash
+uv sync               # create .venv + install the package (editable) and dev deps
+uv run pytest tests   # Triton op + coverage + module-integration tests (GPU)
+```
+
+### Use the op
+```python
+from deformable_attn import ms_deform_attn_triton
+out = ms_deform_attn_triton(value, value_spatial_shapes, sampling_locations, attention_weights)
+```
+
+### Consume from another uv project
+```bash
+uv add "git+https://github.com/Landeed/Deformable-DETR.git"   # pin by tag/commit
+```
+
+### Backends
+`MSDeformAttn.forward` dispatches through `deformable_attn.ms_deform_attn`; select with the `DEFORM_ATTN_BACKEND` env var:
+
+| backend | dtypes | notes |
+|---|---|---|
+| `triton` | fp16 / bf16 / fp32 / fp64 | **default on CUDA**; JIT-compiled, no build |
+| `pytorch` | all | **default on CPU**; `grid_sample` reference / fallback |
+| `cuda` | fp32 / fp64 | opt-in compiled kernel; build via `models/ops/make.sh` |
+
+See [docs/PORT_SPEC.md](docs/PORT_SPEC.md) for the port contract and [docs/BENCHMARK.md](docs/BENCHMARK.md) for performance.
+
 ## License
 
 This project is released under the [Apache 2.0 license](./LICENSE).
@@ -91,6 +123,9 @@ If you find Deformable DETR useful in your research, please consider citing:
     ```
 
 ### Compiling CUDA operators
+
+> **Optional in this fork.** The Triton backend (default) needs no compilation. Build the CUDA kernel only to use `DEFORM_ATTN_BACKEND=cuda`.
+
 ```bash
 cd ./models/ops
 sh ./make.sh

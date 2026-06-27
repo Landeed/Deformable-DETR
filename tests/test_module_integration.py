@@ -12,10 +12,9 @@ import types
 
 import torch
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_REPO = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-for _p in (_HERE, _REPO, os.path.dirname(_HERE)):  # triton_port, repo root, models/ops (.so)
-    sys.path.insert(0, _p)
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tests/ -> repo root
+sys.path.insert(0, _REPO)                                # models.ops.modules
+sys.path.insert(0, os.path.join(_REPO, "models", "ops"))  # built .so for the 'cuda' backend
 
 # stub `models` so its __init__ (full model -> util.misc) is skipped; only the op loads
 _models_stub = types.ModuleType("models")

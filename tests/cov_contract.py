@@ -20,15 +20,13 @@ Tolerances: fp64 (rtol=1e-5, atol=1e-6) -- the port accumulates in fp64 for
 fp64 inputs, so parity is tight. fp32 (rtol=1e-2, atol=1e-3) -- fp32 accumulation
 plus bilinear interpolation rounding; matches test_triton.py's bands.
 """
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
 
 import torch
 
-from ms_deform_attn_triton import ms_deform_attn_triton
-from reference import ms_deform_attn_core_pytorch, make_inputs
+from deformable_attn import ms_deform_attn_triton, ms_deform_attn_core_pytorch
+from deformable_attn.reference import make_inputs
 
 FP64_TOL = dict(rtol=1e-5, atol=1e-6)
 FP32_TOL = dict(rtol=1e-2, atol=1e-3)

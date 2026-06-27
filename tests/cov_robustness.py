@@ -33,15 +33,13 @@ Tolerances by dtype (matching the existing suite's rationale):
   fp64 : rtol=1e-5, atol=1e-6  (full-precision parity)
   fp32 : rtol=1e-2, atol=1e-3  (single-precision accumulation noise)
 """
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
 
 import torch
 
-from ms_deform_attn_triton import ms_deform_attn_triton
-from reference import ms_deform_attn_core_pytorch, make_inputs
+from deformable_attn import ms_deform_attn_triton, ms_deform_attn_core_pytorch
+from deformable_attn.reference import make_inputs
 
 
 BASE_CFG = dict(N=2, M=4, D=16, Lq=120, shapes=((28, 28), (14, 14), (7, 7)), P=4)
