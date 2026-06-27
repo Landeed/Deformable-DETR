@@ -18,7 +18,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.nn.init import xavier_uniform_, constant_
 
-from ..functions import MSDeformAttnFunction
+from ..triton_port import ms_deform_attn
 
 
 def _is_power_of_2(n):
@@ -109,7 +109,9 @@ class MSDeformAttn(nn.Module):
         else:
             raise ValueError(
                 'Last dim of reference_points must be 2 or 4, but get {} instead.'.format(reference_points.shape[-1]))
-        output = MSDeformAttnFunction.apply(
+        # Backend-dispatched (triton on CUDA by default; grid_sample on CPU;
+        # compiled CUDA op via DEFORM_ATTN_BACKEND=cuda). Same call shape.
+        output = ms_deform_attn(
             value, input_spatial_shapes, input_level_start_index, sampling_locations, attention_weights, self.im2col_step)
         output = self.output_proj(output)
         return output
