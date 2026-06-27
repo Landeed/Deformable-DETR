@@ -10,6 +10,48 @@ import os
 
 VALID_BACKENDS = ("triton", "cuda", "pytorch")
 
+_CUDA_FN = None
+
+
+def _cuda_function():
+    """Lazily build an autograd wrapper around the compiled extension.
+
+    Self-contained: imports the installed ``MultiScaleDeformableAttention`` op
+    (built via ``models/ops/make.sh``) by name, so the package never depends on
+    the research repo. Raises a clear error if the extension is not built.
+    """
+    global _CUDA_FN
+    if _CUDA_FN is not None:
+        return _CUDA_FN
+
+    import torch
+    from torch.autograd.function import once_differentiable
+    try:
+        import MultiScaleDeformableAttention as MSDA
+    except ImportError as e:
+        raise ImportError(
+            "DEFORM_ATTN_BACKEND='cuda' needs the compiled MultiScaleDeformableAttention "
+            "extension; build it with models/ops/make.sh, or use 'triton'/'pytorch'.") from e
+
+    class _CudaMSDA(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, value, spatial, lsi, loc, attn, im2col_step):
+            ctx.im2col_step = im2col_step
+            out = MSDA.ms_deform_attn_forward(value, spatial, lsi, loc, attn, im2col_step)
+            ctx.save_for_backward(value, spatial, lsi, loc, attn)
+            return out
+
+        @staticmethod
+        @once_differentiable
+        def backward(ctx, grad_out):
+            value, spatial, lsi, loc, attn = ctx.saved_tensors
+            gv, gloc, gattn = MSDA.ms_deform_attn_backward(
+                value, spatial, lsi, loc, attn, grad_out.contiguous(), ctx.im2col_step)
+            return gv, None, None, gloc, gattn, None
+
+    _CUDA_FN = _CudaMSDA
+    return _CUDA_FN
+
 
 def _resolve_backend(value, backend):
     if backend is None:
@@ -43,8 +85,7 @@ def ms_deform_attn(value, value_spatial_shapes, level_start_index,
         return ms_deform_attn_core_pytorch(
             value, value_spatial_shapes, sampling_locations, attention_weights)
 
-    # backend == "cuda" -- import the compiled extension lazily (needs the .so)
-    from ..functions.ms_deform_attn_func import MSDeformAttnFunction
-    return MSDeformAttnFunction.apply(
+    # backend == "cuda" -- compiled extension (build via models/ops/make.sh)
+    return _cuda_function().apply(
         value, value_spatial_shapes, level_start_index,
         sampling_locations, attention_weights, im2col_step)

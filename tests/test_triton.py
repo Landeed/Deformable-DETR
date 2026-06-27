@@ -1,13 +1,11 @@
 """Forward-parity test for the Triton MSDeformAttn port vs the PyTorch oracle."""
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
 
 import torch
 
-from ms_deform_attn_triton import ms_deform_attn_triton
-from reference import ms_deform_attn_core_pytorch, make_inputs
+from deformable_attn import ms_deform_attn_triton, ms_deform_attn_core_pytorch
+from deformable_attn.reference import make_inputs
 
 
 CONFIGS = [

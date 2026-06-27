@@ -42,15 +42,13 @@ cast of the result back to the low dtype.
   - fp64/fp32 dtype-preservation uses the standard tight tols for a sanity
     forward, but the assertion that matters there is purely `out.dtype == dtype`.
 """
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
 
 import torch
 
-from ms_deform_attn_triton import ms_deform_attn_triton
-from reference import ms_deform_attn_core_pytorch, make_inputs
+from deformable_attn import ms_deform_attn_triton, ms_deform_attn_core_pytorch
+from deformable_attn.reference import make_inputs
 
 
 # Shapes incl. non-pow2 D (24) and a 4-level / many-point config (large L*P, used

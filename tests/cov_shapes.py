@@ -21,15 +21,13 @@ Sweep:
      shapes=((96,96),(48,48),(24,24),(12,12)), P=4, fp32 fwd+bwd, parity + finite grads.
   5. Non-square feature maps (H != W) and tiny maps (e.g. (1,1),(2,3)).
 """
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
 
 import torch
 
-from ms_deform_attn_triton import ms_deform_attn_triton
-from reference import ms_deform_attn_core_pytorch, make_inputs
+from deformable_attn import ms_deform_attn_triton, ms_deform_attn_core_pytorch
+from deformable_attn.reference import make_inputs
 
 
 FP64_RTOL, FP64_ATOL = 1e-5, 1e-6
